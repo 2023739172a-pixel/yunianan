@@ -24,9 +24,9 @@
     "apk:build:windows": "npm run build && npm run cap:sync && cd android && gradlew.bat assembleDebug"
   },
   "dependencies": {
-    "@capacitor/android": "^7.5.4",
-    "@capacitor/cli": "^7.5.4",
-    "@capacitor/core": "^7.5.4",
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/cli": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
     "chart.js": "^4.4.1",
     "clsx": "^2.1.1",
     "commander": "^12.1.0",
