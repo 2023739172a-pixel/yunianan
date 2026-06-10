@@ -22,7 +22,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.1.4'
+        classpath 'com.android.tools.build:gradle:8.2.2'
         classpath 'com.google.gms:google-services:4.4.0'
 
         // NOTE: Do not place your application dependencies here; they belong
@@ -47,9 +47,9 @@ BUILDEOF
 echo "=== Fixing variables.gradle ==="
 cat > android/variables.gradle << 'VAREOF'
 ext {
-    minSdkVersion = 22
-    compileSdkVersion = 33
-    targetSdkVersion = 33
+    minSdkVersion = 24
+    compileSdkVersion = 34
+    targetSdkVersion = 34
     androidxActivityVersion = '1.8.2'
     androidxAppCompatVersion = '1.6.1'
     androidxCoordinatorLayoutVersion = '1.2.0'

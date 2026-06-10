@@ -31,8 +31,8 @@ jobs:
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: 33
-          build-tools: 33.0.2
+          api-level: 34
+          build-tools: 34.0.0
           ndk: 25.2.9519653
           cmake: 3.22.1
 
@@ -41,7 +41,7 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
           echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
-          echo "$ANDROID_HOME/build-tools/33.0.2" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/build-tools/34.0.0" >> $GITHUB_PATH
 
       - name: Sync Capacitor
         run: npx cap sync android
