@@ -3,205 +3,46 @@ name: Build APK
 on:
   push:
     branches: [ main ]
-  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-    
-    - name: Install dependencies
-      run: |
-        echo "=== Installing dependencies ==="
-        npm ci || npm install
-        echo "=== Dependencies installed ==="
-        ls -la node_modules/.bin/ | head -20
-    
-    - name: Build frontend
-      run: |
-        echo "=== Building frontend ==="
-        npm run build
-        echo "=== Build completed ==="
-        ls -la dist/
-    
-    - name: Setup JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: 'gradle'
-    
-    - name: Fix Gradle wrapper to use official mirror
-      run: |
-        echo "=== Fixing gradle-wrapper.properties ==="
-        cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
-distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-all.zip
-networkTimeout=120000
-validateDistributionUrl=true
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-EOF
-        echo "=== Fixed properties file ==="
-        cat android/gradle/wrapper/gradle-wrapper.properties
-        
-        echo "=== Fixing build.gradle ==="
-        cat > android/build.gradle << 'GRADLEEOF'
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
+      - uses: actions/checkout@v4
 
-buildscript {
-    
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.2'
-        classpath 'com.google.gms:google-services:4.4.0'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-        // NOTE: Do not place your application dependencies here; they belong
-        // in the individual module build.gradle files
-    }
-}
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-apply from: "variables.gradle"
+      - name: Install npm dependencies
+        run: npm install
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+      - name: Build web assets
+        run: npm run build
 
-task clean(type: Delete) {
-    delete rootProject.buildDir
-}
-GRADLEEOF
-        echo "=== Fixed build.gradle ==="
-        cat android/build.gradle | head -20
-        
-        echo "=== Fixing variables.gradle ==="
-        cat > android/variables.gradle << 'VAREOF'
-ext {
-    minSdkVersion = 24
-    compileSdkVersion = 34
-    targetSdkVersion = 34
-    androidxActivityVersion = '1.8.2'
-    androidxAppCompatVersion = '1.6.1'
-    androidxCoordinatorLayoutVersion = '1.2.0'
-    androidxCoreVersion = '1.12.0'
-    androidxFragmentVersion = '1.6.2'
-    coreSplashScreenVersion = '1.0.1'
-    androidxWebkitVersion = '1.10.0'
-    junitVersion = '4.13.2'
-    androidxJunitVersion = '1.1.5'
-    androidxEspressoCoreVersion = '3.5.1'
-    cordovaAndroidVersion = '10.1.1'
-}
-VAREOF
-        echo "=== Fixed variables.gradle ==="
-        cat android/variables.gradle
-    
-    - name: Download and setup Gradle manually (fallback)
-      run: |
-        echo "=== Pre-downloading Gradle ==="
-        mkdir -p ~/.gradle/wrapper/dists
-        cd /tmp
-        # Try multiple mirrors
-        for url in \
-          "https://services.gradle.org/distributions/gradle-8.4-bin.zip" \
-          "https://downloads.gradle-dn.com/distributions/gradle-8.4-bin.zip" \
-          "https://github.com/gradle/gradle-distributions/releases/download/v8.4.0/gradle-8.4-bin.zip"; do
-          echo "Trying: $url"
-          if curl -L --max-time 60 -o gradle.zip "$url" 2>/dev/null; then
-            if [ -s gradle.zip ]; then
-              echo "Download successful!"
-              unzip -q gradle.zip -d ~/.gradle/
-              rm -f gradle.zip
-              export PATH=~/.gradle/gradle-8.4/bin:$PATH
-              gradle --version
-              echo "=== Gradle setup complete ==="
-              exit 0
-            fi
-          fi
-          echo "Failed, trying next..."
-        done
-        echo "=== Manual Gradle download not needed (will use wrapper) ==="
-    
-    - name: Sync Capacitor
-      run: |
-        echo "=== Syncing Capacitor ==="
-        npx cap sync android
-        echo "=== Sync completed ==="
-        ls -la android/app/src/main/assets/
-    
-    - name: Build Debug APK
-      run: |
-        echo "=== Building APK ==="
-        cd android
-        chmod +x gradlew
-        
-        # Try with wrapper first
-        echo "Trying with gradlew wrapper..."
-        if ./gradlew assembleDebug --warning-mode all --no-daemon 2>&1; then
-          echo "=== APK Build completed successfully ==="
-          ls -la app/build/outputs/apk/debug/
-          exit 0
-        fi
-        
-        echo "=== gradlew wrapper failed, trying alternative approach ==="
-        echo "Cleaning wrapper cache..."
-        rm -rf ~/.gradle/wrapper/dists/*
-        
-        echo "Downloading gradle directly..."
-        cd /tmp
-        curl -L --max-time 120 -o gradle.zip "https://services.gradle.org/distributions/gradle-8.4-bin.zip"
-        unzip -q gradle.zip
-        export GRADLE_HOME=/tmp/gradle-8.4
-        export PATH=$GRADLE_HOME/bin:$PATH
-        
-        echo "Gradle version:"
-        gradle --version
-        
-        echo "Building with system gradle..."
-        cd $GITHUB_WORKSPACE/android
-        gradle assembleDebug --warning-mode all --no-daemon
-        echo "=== APK Build completed ==="
-        ls -la app/build/outputs/apk/debug/
-    
-    - name: Upload APK
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug
-        path: android/app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 7
-    
-    - name: Upload full build artifacts
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-artifacts
-        path: |
-          android/app/build/outputs/
-          dist/
-        retention-days: 7
-    
-    - name: List all outputs
-      if: always()
-      run: |
-        echo "=== Final build outputs ==="
-        find android/app/build/outputs -type f -name "*.apk" 2>/dev/null || echo "No APK found"
-        echo "=== Build directory contents ==="
-        ls -la android/
+      - name: Fix Gradle config
+        run: bash fix-gradle.sh
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
