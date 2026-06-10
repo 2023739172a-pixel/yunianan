@@ -3,7 +3,7 @@ echo "=== Fixing gradle-wrapper.properties ==="
 cat > android/gradle/wrapper/gradle-wrapper.properties << 'PROPEOF'
 distributionBase=GRADLE_USER_HOME
 distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-all.zip
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-all.zip
 networkTimeout=120000
 validateDistributionUrl=true
 zipStoreBase=GRADLE_USER_HOME
@@ -13,14 +13,20 @@ cat android/gradle/wrapper/gradle-wrapper.properties
 
 echo "=== Fixing root build.gradle ==="
 cat > android/build.gradle << 'BUILDEOF'
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
 buildscript {
+    
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.5.2'
+        classpath 'com.android.tools.build:gradle:8.1.4'
         classpath 'com.google.gms:google-services:4.4.0'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
     }
 }
 
@@ -41,9 +47,9 @@ BUILDEOF
 echo "=== Fixing variables.gradle ==="
 cat > android/variables.gradle << 'VAREOF'
 ext {
-    minSdkVersion = 24
-    compileSdkVersion = 34
-    targetSdkVersion = 34
+    minSdkVersion = 22
+    compileSdkVersion = 33
+    targetSdkVersion = 33
     androidxActivityVersion = '1.8.2'
     androidxAppCompatVersion = '1.6.1'
     androidxCoordinatorLayoutVersion = '1.2.0'
