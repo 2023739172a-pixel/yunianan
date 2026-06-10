@@ -41,14 +41,103 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
     
-    - name: Verify Gradle files
+    - name: Fix Gradle wrapper to use official mirror
       run: |
-        echo "=== Checking Android directory ==="
-        ls -la android/
-        echo "=== Checking gradlew ==="
-        ls -la android/gradlew
-        echo "=== Gradle version ==="
-        cd android && chmod +x gradlew && ./gradlew --version
+        echo "=== Fixing gradle-wrapper.properties ==="
+        cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-all.zip
+networkTimeout=120000
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+EOF
+        echo "=== Fixed properties file ==="
+        cat android/gradle/wrapper/gradle-wrapper.properties
+        
+        echo "=== Fixing build.gradle ==="
+        cat > android/build.gradle << 'GRADLEEOF'
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.2.2'
+        classpath 'com.google.gms:google-services:4.4.0'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+GRADLEEOF
+        echo "=== Fixed build.gradle ==="
+        cat android/build.gradle | head -20
+        
+        echo "=== Fixing variables.gradle ==="
+        cat > android/variables.gradle << 'VAREOF'
+ext {
+    minSdkVersion = 24
+    compileSdkVersion = 34
+    targetSdkVersion = 34
+    androidxActivityVersion = '1.8.2'
+    androidxAppCompatVersion = '1.6.1'
+    androidxCoordinatorLayoutVersion = '1.2.0'
+    androidxCoreVersion = '1.12.0'
+    androidxFragmentVersion = '1.6.2'
+    coreSplashScreenVersion = '1.0.1'
+    androidxWebkitVersion = '1.10.0'
+    junitVersion = '4.13.2'
+    androidxJunitVersion = '1.1.5'
+    androidxEspressoCoreVersion = '3.5.1'
+    cordovaAndroidVersion = '10.1.1'
+}
+VAREOF
+        echo "=== Fixed variables.gradle ==="
+        cat android/variables.gradle
+    
+    - name: Download and setup Gradle manually (fallback)
+      run: |
+        echo "=== Pre-downloading Gradle ==="
+        mkdir -p ~/.gradle/wrapper/dists
+        cd /tmp
+        # Try multiple mirrors
+        for url in \
+          "https://services.gradle.org/distributions/gradle-8.4-bin.zip" \
+          "https://downloads.gradle-dn.com/distributions/gradle-8.4-bin.zip" \
+          "https://github.com/gradle/gradle-distributions/releases/download/v8.4.0/gradle-8.4-bin.zip"; do
+          echo "Trying: $url"
+          if curl -L --max-time 60 -o gradle.zip "$url" 2>/dev/null; then
+            if [ -s gradle.zip ]; then
+              echo "Download successful!"
+              unzip -q gradle.zip -d ~/.gradle/
+              rm -f gradle.zip
+              export PATH=~/.gradle/gradle-8.4/bin:$PATH
+              gradle --version
+              echo "=== Gradle setup complete ==="
+              exit 0
+            fi
+          fi
+          echo "Failed, trying next..."
+        done
+        echo "=== Manual Gradle download not needed (will use wrapper) ==="
     
     - name: Sync Capacitor
       run: |
@@ -62,7 +151,32 @@ jobs:
         echo "=== Building APK ==="
         cd android
         chmod +x gradlew
-        ./gradlew assembleDebug --warning-mode all
+        
+        # Try with wrapper first
+        echo "Trying with gradlew wrapper..."
+        if ./gradlew assembleDebug --warning-mode all --no-daemon 2>&1; then
+          echo "=== APK Build completed successfully ==="
+          ls -la app/build/outputs/apk/debug/
+          exit 0
+        fi
+        
+        echo "=== gradlew wrapper failed, trying alternative approach ==="
+        echo "Cleaning wrapper cache..."
+        rm -rf ~/.gradle/wrapper/dists/*
+        
+        echo "Downloading gradle directly..."
+        cd /tmp
+        curl -L --max-time 120 -o gradle.zip "https://services.gradle.org/distributions/gradle-8.4-bin.zip"
+        unzip -q gradle.zip
+        export GRADLE_HOME=/tmp/gradle-8.4
+        export PATH=$GRADLE_HOME/bin:$PATH
+        
+        echo "Gradle version:"
+        gradle --version
+        
+        echo "Building with system gradle..."
+        cd $GITHUB_WORKSPACE/android
+        gradle assembleDebug --warning-mode all --no-daemon
         echo "=== APK Build completed ==="
         ls -la app/build/outputs/apk/debug/
     
@@ -89,3 +203,5 @@ jobs:
       run: |
         echo "=== Final build outputs ==="
         find android/app/build/outputs -type f -name "*.apk" 2>/dev/null || echo "No APK found"
+        echo "=== Build directory contents ==="
+        ls -la android/
