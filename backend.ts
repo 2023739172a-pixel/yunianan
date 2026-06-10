@@ -20,13 +20,14 @@ let cacheTimestamp = Date.now();
 let cachedAnswers: Record<string, { answers: any[]; timestamp: number }> = {};
 
 interface Answer {
+  id: string;
   platform: string;
-  platformName: string;
-  content: string;
-  source?: string;
-  url?: string;
+  question: string;
+  answer: string;
+  source: string;
+  url: string;
   timestamp: number;
-  qualityScore?: number;
+  qualityScore: number;
 }
 
 interface SearchRequest {
@@ -149,9 +150,10 @@ async function searchDoubao(keyword: string, platform: any, timeout: number): Pr
       const snippet = extractSnippet(html, keyword);
       if (snippet) {
         return {
-          platform: platform.id,
-          platformName: platform.name,
-          content: `【豆包智能回答】关于"${keyword}"：\n\n${snippet}\n\n—— 以上内容由豆包AI提供`,
+          id: Date.now().toString() + '-' + platform.id,
+          platform: platform.name,
+          question: keyword,
+          answer: `【豆包智能回答】关于"${keyword}"：\n\n${snippet}\n\n—— 以上内容由豆包AI提供`,
           source: '字节跳动豆包',
           url: platform.url,
           timestamp: Date.now(),
@@ -183,9 +185,10 @@ async function searchQianwen(keyword: string, platform: any, timeout: number): P
       const snippet = extractSnippet(html, keyword);
       if (snippet) {
         return {
-          platform: platform.id,
-          platformName: platform.name,
-          content: `【千问智能回答】关于"${keyword}"：\n\n${snippet}\n\n—— 以上内容由阿里云千问提供`,
+          id: Date.now().toString() + '-' + platform.id,
+          platform: platform.name,
+          question: keyword,
+          answer: `【千问智能回答】关于"${keyword}"：\n\n${snippet}\n\n—— 以上内容由阿里云千问提供`,
           source: '阿里云千问',
           url: platform.url,
           timestamp: Date.now(),
@@ -217,9 +220,10 @@ async function searchYuanbao(keyword: string, platform: any, timeout: number): P
       const snippet = extractSnippet(html, keyword);
       if (snippet) {
         return {
-          platform: platform.id,
-          platformName: platform.name,
-          content: `【元宝智能回答】关于"${keyword}"：\n\n${snippet}\n\n—— 以上内容由腾讯元宝提供`,
+          id: Date.now().toString() + '-' + platform.id,
+          platform: platform.name,
+          question: keyword,
+          answer: `【元宝智能回答】关于"${keyword}"：\n\n${snippet}\n\n—— 以上内容由腾讯元宝提供`,
           source: '腾讯元宝',
           url: platform.url,
           timestamp: Date.now(),
@@ -253,9 +257,10 @@ async function searchBaidu(keyword: string, platform: any, timeout: number): Pro
       const snippets = extractBaiduSnippets(html);
       if (snippets.length > 0) {
         return {
-          platform: platform.id,
-          platformName: platform.name,
-          content: `【百度搜索结果】关于"${keyword}"的相关信息：\n\n${snippets.join('\n\n')}\n\n—— 以上内容来自百度搜索`,
+          id: Date.now().toString() + '-' + platform.id,
+          platform: platform.name,
+          question: keyword,
+          answer: `【百度搜索结果】关于"${keyword}"的相关信息：\n\n${snippets.join('\n\n')}\n\n—— 以上内容来自百度搜索`,
           source: '百度搜索',
           url: platform.url,
           timestamp: Date.now(),
@@ -288,9 +293,10 @@ async function searchGoogle(keyword: string, platform: any, timeout: number): Pr
       const snippets = extractGoogleSnippets(html);
       if (snippets.length > 0) {
         return {
-          platform: platform.id,
-          platformName: platform.name,
-          content: `【Google搜索结果】关于"${keyword}"的全球信息：\n\n${snippets.join('\n\n')}\n\n—— 以上内容来自Google搜索`,
+          id: Date.now().toString() + '-' + platform.id,
+          platform: platform.name,
+          question: keyword,
+          answer: `【Google搜索结果】关于"${keyword}"的全球信息：\n\n${snippets.join('\n\n')}\n\n—— 以上内容来自Google搜索`,
           source: 'Google搜索',
           url: platform.url,
           timestamp: Date.now(),
@@ -481,9 +487,10 @@ Google搜索为您整合了国际上的相关信息：
   };
 
   return {
-    platform: platform.id,
-    platformName: platform.name,
-    content: answers[platform.id] || answers.doubao,
+    id: Date.now().toString() + '-' + platform.id,
+    platform: platform.name,
+    question: keyword,
+    answer: answers[platform.id] || answers.doubao,
     source: sources[platform.id] || sources.doubao,
     url: sources[platform.id] || sources.doubao,
     timestamp: Date.now(),
@@ -550,7 +557,7 @@ app.post('/api/search', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         keyword,
-        answers: cachedAnswers[cacheKey].answers,
+        data: cachedAnswers[cacheKey].answers,
         totalCount: cachedAnswers[cacheKey].answers.length,
         cached: true,
         fromCache: true
@@ -582,7 +589,7 @@ app.post('/api/search', async (req: Request, res: Response) => {
     res.json({
       success: true,
       keyword,
-      answers,
+      data: answers,
       totalCount: answers.length,
       cached: false,
       platformsSearched: selectedPlatforms.map(p => p.name),
@@ -612,7 +619,7 @@ app.get('/api/search/sample', async (req: Request, res: Response) => {
     res.json({
       success: true,
       keyword: sampleKeyword,
-      answers,
+      data: answers,
       totalCount: answers.length,
       sample: true
     });
@@ -642,8 +649,7 @@ app.post('/api/xuetang/login', async (req: Request, res: Response) => {
     const userId = Buffer.from(`${username}:${Date.now()}`).toString('base64').substring(0, 20);
     
     res.json({
-      success: true,
-      user: {
+      success: true, user: {
         userId,
         userName: username,
         studentId: userId,

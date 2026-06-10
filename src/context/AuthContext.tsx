@@ -1,39 +1,56 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { UserInfo, AuthContextType } from '../types/checkin';
-import { login, logout, getUserInfo, isLoggedIn } from '../utils/checkin';
+import { UserInfo } from '../types/checkin';
+import { login as loginApi, logout as logoutApi, getUserInfo, isLoggedIn as checkIsLoggedIn } from '../utils/checkin';
+
+interface ExtendedUserInfo extends UserInfo {
+  studentId?: string;
+  school?: string;
+  token?: string;
+}
+
+interface AuthContextType {
+  user: ExtendedUserInfo | null;
+  isLoggedIn: () => boolean;
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => void;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<UserInfo | null>(null);
+  const [user, setUser] = useState<ExtendedUserInfo | null>(null);
   const [isLoggedInState, setIsLoggedInState] = useState(false);
 
   useEffect(() => {
-    const currentUser = getUserInfo();
+    const currentUser = getUserInfo() as ExtendedUserInfo | null;
     if (currentUser) {
       setUser(currentUser);
       setIsLoggedInState(true);
     }
   }, []);
 
-  const handleLogin = useCallback(async (username: string, password: string) => {
-    const result = await login(username, password);
+  const isLoggedIn = useCallback(() => {
+    return isLoggedInState && !!user?.token;
+  }, [isLoggedInState, user]);
+
+  const login = useCallback(async (username: string, password: string) => {
+    const result = await loginApi(username, password);
     if (result.success && result.user) {
-      setUser(result.user);
+      setUser(result.user as ExtendedUserInfo);
       setIsLoggedInState(true);
     } else {
       throw new Error(result.message);
     }
   }, []);
 
-  const handleLogout = useCallback(() => {
-    logout();
+  const logout = useCallback(() => {
+    logoutApi();
     setUser(null);
     setIsLoggedInState(false);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoggedIn: isLoggedInState, login: handleLogin, logout: handleLogout }}>
+    <AuthContext.Provider value={{ user, isLoggedIn, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

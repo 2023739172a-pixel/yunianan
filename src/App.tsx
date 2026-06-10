@@ -9,6 +9,7 @@ import CheckInHistory from './components/CheckInHistory';
 import CameraCapture from './components/CameraCapture';
 import ScreenShareCapture from './components/ScreenShareCapture';
 import XuexitongWebview from './components/XuexitongWebview';
+import QRHelper from './pages/QRHelper';
 
 type Page = 'home' | 'results' | 'history' | 'continuous' | 'checkin' | 'locationSign' | 'qrScan' | 'checkinHistory' | 'camera' | 'screenShare' | 'xuexitong';
 
@@ -56,6 +57,7 @@ const AppContent: React.FC = () => {
   const [isOCRProcessing, setIsOCRProcessing] = useState(false);
   const [showCheckInLogin, setShowCheckInLogin] = useState(false);
   const [targetCheckInPage, setTargetCheckInPage] = useState<Page | null>(null);
+  const [showAllAnswers, setShowAllAnswers] = useState(false);
 
   useEffect(() => {
     const savedHistory = localStorage.getItem('answerHistory');
@@ -96,10 +98,33 @@ const AppContent: React.FC = () => {
   const [lastUpdate, setLastUpdate] = useState('');
   const [showUpdateNotification, setShowUpdateNotification] = useState(false);
 
+  // 检测URL参数，显示扫码辅助页面
+  const [showQRHelper, setShowQRHelper] = useState(false);
+  const [qrHelperParams, setQrHelperParams] = useState<{
+    courseId?: string;
+    courseName?: string;
+    userId?: string;
+  }>({});
+
   useEffect(() => {
     checkVersion();
     const interval = setInterval(checkVersion, 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    // 检测是否是扫码辅助页面
+    const urlParams = new URLSearchParams(window.location.search);
+    const isQRHelper = window.location.pathname.includes('/qr-helper');
+    
+    if (isQRHelper) {
+      setShowQRHelper(true);
+      setQrHelperParams({
+        courseId: urlParams.get('courseId') || undefined,
+        courseName: urlParams.get('courseName') || undefined,
+        userId: urlParams.get('userId') || undefined,
+      });
+    }
   }, []);
 
   const checkVersion = async () => {
@@ -565,7 +590,7 @@ const AppContent: React.FC = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-2 gap-3 mb-4">
           <button
             onClick={() => setCurrentPage('history')}
             className="bg-white rounded-xl shadow-md p-4 text-center hover:shadow-lg transition-shadow"
@@ -576,22 +601,13 @@ const AppContent: React.FC = () => {
             <div className="text-sm font-medium text-gray-700">历史记录</div>
           </button>
           <button
-              onClick={() => checkCheckInAuth('checkin')}
-              className="bg-white rounded-xl shadow-md p-4 text-center hover:shadow-lg transition-shadow"
-            >
-              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                <MapPin className="w-5 h-5 text-red-600" />
-              </div>
-              <div className="text-sm font-medium text-gray-700">学习通签到</div>
-            </button>
-          <button
               onClick={() => setCurrentPage('xuexitong')}
               className="bg-white rounded-xl shadow-md p-4 text-center hover:shadow-lg transition-shadow"
             >
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-2">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-red-100 rounded-full flex items-center justify-center mx-auto mb-2">
                 <Globe className="w-5 h-5 text-blue-600" />
               </div>
-              <div className="text-sm font-medium text-gray-700">内置学习通</div>
+              <div className="text-sm font-medium text-gray-700">学习通</div>
             </button>
         </div>
 
@@ -618,7 +634,10 @@ const AppContent: React.FC = () => {
       <div className="bg-white shadow-sm sticky top-0 z-10">
         <div className="flex items-center justify-between px-4 py-3">
           <button
-            onClick={() => setCurrentPage('home')}
+            onClick={() => {
+              setCurrentPage('home');
+              setShowAllAnswers(false);
+            }}
             className="flex items-center gap-1 text-gray-600"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -626,7 +645,10 @@ const AppContent: React.FC = () => {
           </button>
           <h2 className="font-semibold text-gray-800">搜索结果</h2>
           <button
-            onClick={() => performSearch()}
+            onClick={() => {
+              performSearch();
+              setShowAllAnswers(false);
+            }}
             className="flex items-center gap-1 text-blue-600"
           >
             <RefreshCw className="w-4 h-4" />
@@ -643,18 +665,20 @@ const AppContent: React.FC = () => {
         {answers.length > 0 && (
           <div className="mb-4">
             <div className="grid gap-3">
-              {answers.slice(0, 2).map((answer, index) => (
+              {(showAllAnswers ? answers : answers.slice(0, 2)).map((answer, index) => (
                 <MobileAnswerCard key={answer.id} answer={answer} rank={index + 1} onCopy={copyToClipboard} />
               ))}
             </div>
-            <div className="mt-3 text-center">
-              <button
-                onClick={() => {}}
-                className="text-blue-600 text-sm"
-              >
-                查看全部 {answers.length} 个答案 →
-              </button>
-            </div>
+            {answers.length > 2 && (
+              <div className="mt-3 text-center">
+                <button
+                  onClick={() => setShowAllAnswers(!showAllAnswers)}
+                  className="text-blue-600 text-sm font-medium"
+                >
+                  {showAllAnswers ? '收起部分答案' : `查看全部 ${answers.length} 个答案 →`}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1067,6 +1091,9 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="relative">
+      {/* 如果是扫码辅助页面，直接显示辅助页面 */}
+      {showQRHelper && <QRHelper params={qrHelperParams} />}
+      
       {currentPage === 'home' && renderHomePage()}
       {currentPage === 'results' && renderResultsPage()}
       {currentPage === 'history' && renderHistoryPage()}

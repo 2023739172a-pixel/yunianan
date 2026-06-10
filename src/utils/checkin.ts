@@ -1,401 +1,393 @@
-import { UserInfo, Location, CheckInRecord, Course } from '../types/checkin';
+import httpRequest from './httpRequest';
 
-const STORAGE_KEY_USER = 'xuetang_user';
-const STORAGE_KEY_RECORDS = 'xuetang_records';
-const STORAGE_KEY_LOCATIONS = 'xuetang_locations';
-const STORAGE_KEY_COURSES = 'xuetang_courses';
-
-const XUETANG_BASE_URL = 'https://passport2.chaoxing.com';
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
-
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000;
-
-const delay = (ms: number): Promise<void> => {
-  return new Promise(resolve => setTimeout(resolve, ms));
+const XUETANG_CONFIG = {
+  baseUrl: 'https://passport2.chaoxing.com',
+  apiBase: 'https://mooc1.chaoxing.com',
+  encodingKey: 'tieba28386291',
+  encodingMid: 'chaoxingweike',
 };
 
-const withRetry = async <T>(
-  fn: () => Promise<T>,
-  retries: number = MAX_RETRIES,
-  delayMs: number = RETRY_DELAY
-): Promise<T> => {
-  let lastError: Error | null = null;
-  
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      
-      if (i < retries - 1) {
-        await delay(delayMs * Math.pow(2, i));
-      }
-    }
-  }
-  
-  throw lastError || new Error('请求失败');
-};
+const API_BASE = 'http://localhost:5000/api';
 
-export const checkNetworkStatus = (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    if (navigator.onLine) {
-      resolve(true);
-    } else {
-      resolve(false);
-    }
-  });
-};
-
-export const testApiConnection = async (): Promise<{ success: boolean; message: string }> => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/health`, {
-      method: 'GET',
-      timeout: 5000,
-    });
-    
-    if (response.ok) {
-      return { success: true, message: 'API连接正常' };
-    } else {
-      return { success: false, message: 'API响应异常' };
-    }
-  } catch (error) {
-    return { success: false, message: '无法连接到服务器' };
-  }
-};
-
-export interface ExtendedUserInfo extends UserInfo {
+export interface UserInfo {
+  userId: string;
+  userName: string;
   studentId?: string;
   school?: string;
   token?: string;
+  avatar?: string;
 }
 
-export async function login(username: string, password: string): Promise<{ success: boolean; message: string; user?: ExtendedUserInfo }> {
-  if (!username || !password) {
-    return { success: false, message: '请输入账号和密码' };
-  }
+export interface CheckInResult {
+  success: boolean;
+  message: string;
+  checkInId?: string;
+  checkInTime?: string;
+  error?: string;
+}
 
+export interface LoginResult {
+  success: boolean;
+  user?: UserInfo;
+  message: string;
+}
+
+export interface Course {
+  courseId: string;
+  courseName: string;
+  teacher: string;
+  className: string;
+  schedule: string;
+}
+
+export interface SavedLocation {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  description?: string;
+}
+
+export interface CheckInHistoryItem {
+  id: string;
+  courseName: string;
+  method: 'location' | 'qr';
+  location?: string;
+  timestamp: string;
+  status: 'success' | 'failed';
+}
+
+function getStorageKey(key: string): string {
+  return `xt_${key}`;
+}
+
+export async function login(username: string, password: string): Promise<LoginResult> {
   try {
-    const networkStatus = await checkNetworkStatus();
-    if (!networkStatus) {
-      return { success: false, message: '当前网络不可用，请检查网络连接' };
-    }
-
-    const apiResponse = await withRetry(async () => {
-      const response = await fetch(`${API_BASE_URL}/xuetang/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!response.ok) {
-        if (response.status === 503 || response.status === 504) {
-          throw new Error('服务器暂时不可用');
-        }
-      }
-
-      return response.json();
+    const response = await fetch(`${API_BASE}/xuetang/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password }),
     });
 
-    if (apiResponse.success) {
-      const user: ExtendedUserInfo = {
-        userId: apiResponse.user.userId || username,
-        userName: apiResponse.user.userName || username,
-        studentId: apiResponse.user.studentId || username,
-        school: apiResponse.user.school || '',
-        avatar: apiResponse.user.avatar,
-        token: apiResponse.user.token,
+    const data = await response.json();
+
+    if (data.success && data.user) {
+      localStorage.setItem(getStorageKey('user'), JSON.stringify(data.user));
+      localStorage.setItem(getStorageKey('token'), data.user.token);
+      localStorage.setItem(getStorageKey('logged_in'), 'true');
+      return {
+        success: true,
+        user: data.user,
+        message: '登录成功',
       };
-
-      const encryptedData = btoa(JSON.stringify({ user, password }));
-      localStorage.setItem(STORAGE_KEY_USER, encryptedData);
-
-      return { success: true, message: '登录成功', user };
     } else {
-      return { success: false, message: apiResponse.message || '登录失败' };
+      return {
+        success: false,
+        message: data.message || '登录失败',
+      };
     }
   } catch (error) {
-    console.error('登录失败:', error);
-    const errorMessage = error instanceof Error 
-      ? error.message 
-      : '网络异常，请检查网络连接';
-    
-    if (errorMessage.includes('timeout') || errorMessage.includes('abort')) {
-      return { success: false, message: '请求超时，请稍后重试' };
-    }
-    
-    return { success: false, message: errorMessage };
+    console.error('登录请求失败:', error);
+    return {
+      success: false,
+      message: '网络请求失败，请检查网络连接',
+    };
   }
 }
 
 export function logout(): void {
-  localStorage.removeItem(STORAGE_KEY_USER);
+  localStorage.removeItem(getStorageKey('user'));
+  localStorage.removeItem(getStorageKey('token'));
+  localStorage.removeItem(getStorageKey('logged_in'));
+}
+
+export function getUserInfo(): UserInfo | null {
+  const userStr = localStorage.getItem(getStorageKey('user'));
+  if (userStr) {
+    try {
+      return JSON.parse(userStr);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export function isLoggedIn(): boolean {
-  const data = localStorage.getItem(STORAGE_KEY_USER);
-  if (!data) return false;
-
-  try {
-    const parsed = JSON.parse(atob(data));
-    const user = parsed.user as ExtendedUserInfo;
-    
-    if (!user || !user.token) {
-      return false;
-    }
-    
-    return true;
-  } catch {
-    return false;
-  }
+  const loggedIn = localStorage.getItem(getStorageKey('logged_in'));
+  return loggedIn === 'true' && !!getUserInfo();
 }
 
-export function getUserInfo(): ExtendedUserInfo | null {
-  const data = localStorage.getItem(STORAGE_KEY_USER);
-  if (!data) return null;
-
-  try {
-    const parsed = JSON.parse(atob(data));
-    return parsed.user || null;
-  } catch {
-    return null;
-  }
-}
-
-export function getAuthHeaders(): Record<string, string> {
+export async function locationCheckIn(
+  location: { name: string; lat: number; lng: number },
+  courseName: string
+): Promise<CheckInResult> {
   const user = getUserInfo();
-  if (user && user.token) {
+  
+  if (!user?.token) {
     return {
-      'Authorization': `Bearer ${user.token}`,
+      success: false,
+      message: '请先登录学习通账号',
     };
   }
-  return {};
-}
 
-export async function locationCheckIn(location: Location, courseName: string): Promise<CheckInRecord> {
-  const user = getUserInfo();
-  
   try {
-    const networkStatus = await checkNetworkStatus();
-    if (!networkStatus) {
-      const record: CheckInRecord = {
-        id: Date.now().toString(),
-        courseName,
-        type: 'location',
-        time: new Date().toLocaleString('zh-CN'),
-        status: 'success',
+    const response = await fetch(`${API_BASE}/xuetang/location-checkin`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
         location,
-      };
-      const records = getCheckInHistory();
-      records.unshift(record);
-      localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records.slice(0, 100)));
-      return record;
-    }
-
-    const apiResponse = await withRetry(async () => {
-      const response = await fetch(`${API_BASE_URL}/xuetang/location-checkin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({ 
-          location, 
-          courseName,
-          userId: user?.userId,
-          token: user?.token,
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      return response.json();
+        courseName,
+        userId: user.userId,
+        token: user.token,
+      }),
     });
 
-    const record: CheckInRecord = {
-      id: apiResponse.checkInId || Date.now().toString(),
-      courseName,
-      type: 'location',
-      time: new Date().toLocaleString('zh-CN'),
-      status: apiResponse.success ? 'success' : 'failed',
-      location,
-    };
+    const data = await response.json();
 
-    const records = getCheckInHistory();
-    records.unshift(record);
-    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records.slice(0, 100)));
-
-    return record;
+    if (data.success) {
+      const historyItem: CheckInHistoryItem = {
+        id: data.checkInId,
+        courseName,
+        method: 'location',
+        location: location.name,
+        timestamp: data.checkInTime,
+        status: 'success'
+      };
+      saveCheckInHistory(historyItem);
+      
+      return {
+        success: true,
+        message: '签到成功！',
+        checkInId: data.checkInId,
+        checkInTime: data.checkInTime,
+      };
+    } else {
+      return {
+        success: false,
+        message: data.message || '签到失败',
+      };
+    }
   } catch (error) {
-    console.error('签到失败:', error);
-
-    const record: CheckInRecord = {
-      id: Date.now().toString(),
-      courseName,
-      type: 'location',
-      time: new Date().toLocaleString('zh-CN'),
-      status: 'success',
-      location,
+    console.error('签到请求失败:', error);
+    return {
+      success: false,
+      message: '网络请求失败，请检查网络连接',
     };
-
-    const records = getCheckInHistory();
-    records.unshift(record);
-    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records.slice(0, 100)));
-
-    return record;
   }
 }
 
-export async function qrCheckIn(qrCode: string, courseName: string): Promise<CheckInRecord> {
+export async function qrCodeCheckIn(qrCode: string): Promise<CheckInResult> {
   const user = getUserInfo();
   
-  try {
-    const networkStatus = await checkNetworkStatus();
-    if (!networkStatus) {
-      const record: CheckInRecord = {
-        id: Date.now().toString(),
-        courseName,
-        type: 'qr',
-        time: new Date().toLocaleString('zh-CN'),
-        status: 'success',
-        qrCode,
-      };
-      const records = getCheckInHistory();
-      records.unshift(record);
-      localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records.slice(0, 100)));
-      return record;
-    }
+  if (!user?.token) {
+    return {
+      success: false,
+      message: '请先登录学习通账号',
+    };
+  }
 
-    const apiResponse = await withRetry(async () => {
-      const response = await fetch(`${API_BASE_URL}/xuetang/qr-checkin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({ 
-          qrCode, 
-          courseName,
-          userId: user?.userId,
-          token: user?.token,
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      return response.json();
+  try {
+    const response = await fetch(`${API_BASE}/xuetang/qr-checkin`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        qrCode,
+        userId: user.userId,
+        token: user.token,
+      }),
     });
 
-    const record: CheckInRecord = {
-      id: apiResponse.checkInId || Date.now().toString(),
-      courseName,
-      type: 'qr',
-      time: new Date().toLocaleString('zh-CN'),
-      status: apiResponse.success ? 'success' : 'failed',
-      qrCode,
-    };
+    const data = await response.json();
 
-    const records = getCheckInHistory();
-    records.unshift(record);
-    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records.slice(0, 100)));
-
-    return record;
+    if (data.success) {
+      const historyItem: CheckInHistoryItem = {
+        id: data.checkInId,
+        courseName: '扫码签到',
+        method: 'qr',
+        timestamp: data.checkInTime,
+        status: 'success'
+      };
+      saveCheckInHistory(historyItem);
+      
+      return {
+        success: true,
+        message: '签到成功！',
+        checkInId: data.checkInId,
+        checkInTime: data.checkInTime,
+      };
+    } else {
+      return {
+        success: false,
+        message: data.message || '签到失败',
+      };
+    }
   } catch (error) {
-    console.error('签到失败:', error);
-
-    const record: CheckInRecord = {
-      id: Date.now().toString(),
-      courseName,
-      type: 'qr',
-      time: new Date().toLocaleString('zh-CN'),
-      status: 'success',
-      qrCode,
+    console.error('签到请求失败:', error);
+    return {
+      success: false,
+      message: '网络请求失败，请检查网络连接',
     };
-
-    const records = getCheckInHistory();
-    records.unshift(record);
-    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records.slice(0, 100)));
-
-    return record;
   }
 }
 
-export function getCheckInHistory(): CheckInRecord[] {
-  const data = localStorage.getItem(STORAGE_KEY_RECORDS);
-  return data ? JSON.parse(data) : [];
+export async function qrCheckIn(qrCode: string): Promise<CheckInResult> {
+  return qrCodeCheckIn(qrCode);
 }
 
-export async function getCoursesFromApi(): Promise<Course[]> {
-  try {
-    const networkStatus = await checkNetworkStatus();
-    if (!networkStatus) {
-      return getCourses();
+export function checkNetworkStatus(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!navigator.onLine) {
+      resolve(false);
+      return;
     }
 
-    const apiResponse = await withRetry(async () => {
-      const response = await fetch(`${API_BASE_URL}/xuetang/courses`, {
-        headers: {
-          ...getAuthHeaders(),
-        },
-        signal: AbortSignal.timeout(10000),
-      });
-      return response.json();
+    const img = document.createElement('img');
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = 'https://passport2.chaoxing.com/favicon.ico?t=' + Date.now();
+    
+    setTimeout(() => resolve(true), 1000);
+  });
+}
+
+export async function testApiConnection(): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await fetch(`${API_BASE}/health`, {
+      method: 'GET',
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        success: data.success === true,
+        message: data.success ? '后端服务连接正常' : '后端服务异常'
+      };
+    }
+    return {
+      success: false,
+      message: '无法连接后端服务'
+    };
+  } catch (error) {
+    console.error('API连接测试失败:', error);
+    return {
+      success: false,
+      message: '网络连接失败'
+    };
+  }
+}
+
+export async function getCourses(): Promise<Course[]> {
+  try {
+    const response = await fetch(`${API_BASE}/xuetang/courses`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
 
-    if (apiResponse.success) {
-      localStorage.setItem(STORAGE_KEY_COURSES, JSON.stringify(apiResponse.courses));
-      return apiResponse.courses;
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.courses) {
+        return data.courses;
+      }
     }
+    
+    return [
+      { courseId: '1', courseName: '高等数学', teacher: '张老师', className: '软件工程1班', schedule: '周一 10:00' },
+      { courseId: '2', courseName: '大学英语', teacher: '李老师', className: '软件工程1班', schedule: '周二 14:00' },
+      { courseId: '3', courseName: '计算机基础', teacher: '王老师', className: '软件工程1班', schedule: '周三 16:00' },
+      { courseId: '4', courseName: '软件工程', teacher: '刘老师', className: '软件工程1班', schedule: '周四 08:00' },
+    ];
   } catch (error) {
     console.error('获取课程列表失败:', error);
+    return [
+      { courseId: '1', courseName: '高等数学', teacher: '张老师', className: '软件工程1班', schedule: '周一 10:00' },
+      { courseId: '2', courseName: '大学英语', teacher: '李老师', className: '软件工程1班', schedule: '周二 14:00' },
+      { courseId: '3', courseName: '计算机基础', teacher: '王老师', className: '软件工程1班', schedule: '周三 16:00' },
+      { courseId: '4', courseName: '软件工程', teacher: '刘老师', className: '软件工程1班', schedule: '周四 08:00' },
+    ];
   }
-
-  return getCourses();
 }
 
-export function saveLocation(name: string, lat: number, lng: number): void {
-  const locations = getSavedLocations();
-  const existingIndex = locations.findIndex(l => l.name === name);
-
-  if (existingIndex >= 0) {
-    locations[existingIndex] = { name, lat, lng };
-  } else {
-    locations.push({ name, lat, lng });
+export function getSavedLocations(): SavedLocation[] {
+  try {
+    const locations = localStorage.getItem(getStorageKey('saved_locations'));
+    if (locations) {
+      return JSON.parse(locations);
+    }
+  } catch (error) {
+    console.error('获取保存的位置失败:', error);
   }
-
-  localStorage.setItem(STORAGE_KEY_LOCATIONS, JSON.stringify(locations));
-}
-
-export function getSavedLocations(): Location[] {
-  const data = localStorage.getItem(STORAGE_KEY_LOCATIONS);
-  if (data) {
-    return JSON.parse(data);
-  }
-
+  
   return [
-    { name: '教学楼A栋', lat: 31.2304, lng: 121.4737 },
-    { name: '图书馆', lat: 31.2305, lng: 121.4738 },
-    { name: '体育馆', lat: 31.2306, lng: 121.4739 },
-    { name: '食堂', lat: 31.2307, lng: 121.4740 },
-    { name: '宿舍', lat: 31.2308, lng: 121.4741 },
+    { id: '1', name: '教学楼A栋', lat: 31.2304, lng: 121.4737, description: '教学楼A栋大厅' },
+    { id: '2', name: '图书馆', lat: 31.2305, lng: 121.4738, description: '图书馆正门' },
+    { id: '3', name: '体育馆', lat: 31.2306, lng: 121.4739, description: '体育馆入口' },
+    { id: '4', name: '食堂', lat: 31.2307, lng: 121.4740, description: '食堂门口' },
   ];
 }
 
-export function getCourses(): Course[] {
-  const data = localStorage.getItem(STORAGE_KEY_COURSES);
-  if (data) {
-    return JSON.parse(data);
+export function saveLocation(location: SavedLocation): void {
+  try {
+    const locations = getSavedLocations();
+    const existingIndex = locations.findIndex(l => l.id === location.id);
+    
+    if (existingIndex >= 0) {
+      locations[existingIndex] = location;
+    } else {
+      locations.push(location);
+    }
+    
+    localStorage.setItem(getStorageKey('saved_locations'), JSON.stringify(locations));
+  } catch (error) {
+    console.error('保存位置失败:', error);
   }
-
-  return [
-    { id: '1', name: '高等数学', teacher: '张教授', time: '周一 08:00-09:40' },
-    { id: '2', name: '大学英语', teacher: '李老师', time: '周二 10:00-11:40' },
-    { id: '3', name: '计算机基础', teacher: '王老师', time: '周三 14:00-15:40' },
-    { id: '4', name: '软件工程', teacher: '赵教授', time: '周四 08:00-09:40' },
-    { id: '5', name: '人工智能', teacher: '刘教授', time: '周五 10:00-11:40' },
-    { id: '6', name: '数据结构', teacher: '陈老师', time: '周五 14:00-15:40' },
-  ];
 }
 
-export function generateQRCode(text: string): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}`;
+export function deleteLocation(locationId: string): void {
+  try {
+    const locations = getSavedLocations();
+    const filtered = locations.filter(l => l.id !== locationId);
+    localStorage.setItem(getStorageKey('saved_locations'), JSON.stringify(filtered));
+  } catch (error) {
+    console.error('删除位置失败:', error);
+  }
+}
+
+export function getCheckInHistory(): CheckInHistoryItem[] {
+  try {
+    const history = localStorage.getItem(getStorageKey('checkin_history'));
+    if (history) {
+      return JSON.parse(history);
+    }
+  } catch (error) {
+    console.error('获取签到历史失败:', error);
+  }
+  return [];
+}
+
+function saveCheckInHistory(item: CheckInHistoryItem): void {
+  try {
+    const history = getCheckInHistory();
+    history.unshift(item);
+    const limited = history.slice(0, 100);
+    localStorage.setItem(getStorageKey('checkin_history'), JSON.stringify(limited));
+  } catch (error) {
+    console.error('保存签到历史失败:', error);
+  }
+}
+
+export function clearCheckInHistory(): void {
+  try {
+    localStorage.removeItem(getStorageKey('checkin_history'));
+  } catch (error) {
+    console.error('清空签到历史失败:', error);
+  }
 }

@@ -1,18 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
-import { QrCode, Camera, Image, Check, Clock } from 'lucide-react';
+import { QrCode, Camera, Image, Check, Clock, Share2, Copy, ExternalLink } from 'lucide-react';
 import { Course } from '../../types/checkin';
 import { qrCheckIn, getCourses } from '../../utils/checkin';
 
 interface QRScanProps {
   onSuccess?: () => void;
+  userId?: string;
 }
 
-export default function QRScan({ onSuccess }: QRScanProps) {
+export default function QRScan({ onSuccess, userId = 'anonymous' }: QRScanProps) {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [scanning, setScanning] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [resultSuccess, setResultSuccess] = useState(false);
   const [scannedCode, setScannedCode] = useState('');
+  const [showShare, setShowShare] = useState(false);
+  const [copied, setCopied] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -103,6 +106,27 @@ export default function QRScan({ onSuccess }: QRScanProps) {
     handleCodeDetected(mockCode);
   };
 
+  // 生成分享链接
+  const generateShareLink = () => {
+    const baseUrl = window.location.origin;
+    const shareUrl = `${baseUrl}/qr-helper?courseId=${selectedCourse?.id}&courseName=${encodeURIComponent(selectedCourse?.name || '')}&userId=${userId}`;
+    return shareUrl;
+  };
+
+  // 复制分享链接
+  const handleCopyLink = () => {
+    const shareUrl = generateShareLink();
+    navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // 在新窗口打开分享页面
+  const handleOpenSharePage = () => {
+    const shareUrl = generateShareLink();
+    window.open(shareUrl, '_blank');
+  };
+
   return (
     <div className="p-4">
       <div className="bg-white rounded-xl shadow-lg p-4 mb-4">
@@ -174,6 +198,53 @@ export default function QRScan({ onSuccess }: QRScanProps) {
             手动输入
           </button>
         </div>
+
+        {/* 分享功能按钮 */}
+        <div className="mt-3">
+          <button
+            onClick={() => setShowShare(!showShare)}
+            disabled={!selectedCourse}
+            className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-semibold py-3 rounded-lg flex items-center justify-center transition-all disabled:opacity-50"
+          >
+            <Share2 className="w-5 h-5 mr-2" />
+            分享链接辅助签到
+          </button>
+        </div>
+
+        {/* 分享链接弹窗 */}
+        {showShare && selectedCourse && (
+          <div className="mt-3 bg-purple-50 border-2 border-purple-200 rounded-xl p-4">
+            <div className="flex items-center mb-3">
+              <Share2 className="w-5 h-5 text-purple-600 mr-2" />
+              <h4 className="font-semibold text-purple-800">分享链接</h4>
+            </div>
+            <p className="text-purple-700 text-sm mb-3">
+              分享此链接给好友，好友可在浏览器中打开并辅助扫码签到
+            </p>
+            <div className="bg-white rounded-lg p-3 mb-3 break-all">
+              <code className="text-xs text-gray-600">{generateShareLink()}</code>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCopyLink}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 rounded-lg flex items-center justify-center transition-all"
+              >
+                <Copy className="w-4 h-4 mr-2" />
+                {copied ? '已复制!' : '复制链接'}
+              </button>
+              <button
+                onClick={handleOpenSharePage}
+                className="flex-1 bg-white hover:bg-gray-50 text-purple-600 border-2 border-purple-600 font-medium py-2 rounded-lg flex items-center justify-center transition-all"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                打开链接
+              </button>
+            </div>
+            <p className="text-purple-600 text-xs mt-2 text-center">
+              好友无需下载APP，直接在浏览器中打开即可辅助扫码
+            </p>
+          </div>
+        )}
       </div>
 
       {showResult && (

@@ -1,190 +1,209 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Settings, ExternalLink, RefreshCw, XCircle, Check, Smartphone, Zap, Globe, Monitor, Maximize2, HelpCircle, AlertTriangle } from 'lucide-react';
+import { 
+  ArrowLeft, ExternalLink, RefreshCw, XCircle, Check, 
+  Chrome, Monitor, BookOpen, MapPin, QrCode, 
+  MessageSquare, Users, Calendar, ChevronRight,
+  Home, Globe, HelpCircle, AlertCircle, Clock, History, LogOut, Loader2
+} from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { getCourses as fetchCourses } from '../../utils/checkin';
 
 interface XuexitongWebviewProps {
   onClose: () => void;
 }
 
-type ViewMode = 'iframe' | 'browser' | 'debug';
-type LoginStatus = 'idle' | 'loading' | 'success' | 'failed' | 'unknown';
+type ViewMode = 'webview-login' | 'courses-list' | 'course-detail' | 'all-courses';
+type LoginStatus = 'idle' | 'loading' | 'success' | 'failed';
+
+interface Course {
+  id: string;
+  name: string;
+  teacher: string;
+  className: string;
+  time: string;
+  hasCheckIn: boolean;
+  hasChat: boolean;
+}
+
+interface CheckInRecord {
+  id: string;
+  courseName: string;
+  method: 'location' | 'qr';
+  location?: string;
+  time: string;
+  status: 'success' | 'failed';
+}
 
 const XuexitongWebview: React.FC<XuexitongWebviewProps> = ({ onClose }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>('iframe');
+  const { user, logout } = useAuth();
+  const [viewMode, setViewMode] = useState<ViewMode>('webview-login');
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [currentUrl, setCurrentUrl] = useState('https://passport2.chaoxing.com/login?refer=http://mobilelearn.chaoxing.com/');
   const [iframeKey, setIframeKey] = useState(0);
-  const [loginStatus, setLoginStatus] = useState<LoginStatus>('unknown');
-  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [loginStatus, setLoginStatus] = useState<LoginStatus>('idle');
+  const [courses, setCourses] = useState<Course[]>([]);
   const [showHelp, setShowHelp] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [urlHistory, setUrlHistory] = useState<string[]>([]);
-  const [useProxy, setUseProxy] = useState(false);
-  const [iframeSandbox, setIframeSandbox] = useState('allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation allow-top-navigation-by-user-activation allow-modals allow-downloads');
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkInRecords, setCheckInRecords] = useState<CheckInRecord[]>([]);
+  const [showCheckInHistory, setShowCheckInHistory] = useState(false);
   
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const lastUrlRef = useRef('');
-
-  const addLog = (message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info') => {
-    const timestamp = new Date().toLocaleTimeString();
-    const prefix = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
-    setLogs(prev => [...prev.slice(-30), `${prefix} [${timestamp}] ${message}`]);
-  };
+  
+  // 模拟课程数据
+  const mockCourses: Course[] = [
+    {
+      id: '1',
+      name: '高等数学',
+      teacher: '张老师',
+      className: '软件工程1班',
+      time: '周一 10:00-12:00',
+      hasCheckIn: true,
+      hasChat: true
+    },
+    {
+      id: '2',
+      name: '大学英语',
+      teacher: '李老师',
+      className: '软件工程1班',
+      time: '周二 14:00-16:00',
+      hasCheckIn: true,
+      hasChat: true
+    },
+    {
+      id: '3',
+      name: '计算机基础',
+      teacher: '王老师',
+      className: '软件工程1班',
+      time: '周三 16:00-18:00',
+      hasCheckIn: true,
+      hasChat: true
+    },
+    {
+      id: '4',
+      name: '软件工程',
+      teacher: '刘老师',
+      className: '软件工程1班',
+      time: '周四 08:00-10:00',
+      hasCheckIn: true,
+      hasChat: true
+    }
+  ];
 
   useEffect(() => {
-    addLog('🚀 学习通内置浏览器启动', 'success');
-    addLog(`📱 当前模式: ${viewMode === 'iframe' ? '内嵌模式' : viewMode === 'browser' ? '外部浏览器' : '调试模式'}`, 'info');
-    
-    if (viewMode === 'iframe') {
-      navigateToUrl(currentUrl);
+    if (viewMode === 'courses-list' && courses.length === 0) {
+      // 加载课程
+      setCourses(mockCourses);
     }
   }, [viewMode]);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      checkIframeUrl();
-    }, 1500);
-    
-    return () => clearInterval(interval);
-  }, []);
-
-  const checkIframeUrl = () => {
-    if (viewMode !== 'iframe') return;
-    
-    try {
-      if (iframeRef.current && iframeRef.current.contentWindow) {
-        const iframeWindow = iframeRef.current.contentWindow;
-        
-        try {
-          const url = iframeWindow.location.href;
-          
-          if (url && url !== 'about:blank' && url !== lastUrlRef.current) {
-            lastUrlRef.current = url;
-            setUrlHistory(prev => [...prev.slice(-10), url]);
-            
-            handleUrlChange(url);
-          }
-        } catch (e) {
-          addLog('跨域URL检测被阻止 - 这是正常现象', 'warning');
-        }
-      }
-    } catch (e) {
-      // Ignore errors
-    }
-  };
-
-  const handleUrlChange = (url: string) => {
-    addLog(`🌐 URL变更: ${url.substring(0, 60)}...`, 'info');
-    
-    if (url.includes('mobilelearn') && !url.includes('passport') && !url.includes('login')) {
-      setLoginStatus('success');
-      addLog('✅ 检测到学习通主页 - 登录成功！', 'success');
-    } else if (url.includes('login') || url.includes('passport')) {
-      setLoginStatus('idle');
-      addLog('📝 检测到登录页面', 'info');
-    }
+  const refreshIframe = () => {
+    setIframeKey(prev => prev + 1);
   };
 
   const navigateToUrl = (url: string) => {
-    addLog(`🔗 导航到: ${url.substring(0, 60)}...`, 'info');
     setCurrentUrl(url);
     setIframeKey(prev => prev + 1);
   };
 
-  const refreshIframe = () => {
-    addLog('🔄 刷新页面...', 'info');
-    setIframeKey(prev => prev + 1);
+  const handleLoginComplete = () => {
+    setLoginStatus('success');
+    setViewMode('courses-list');
   };
 
-  const openInExternalBrowser = () => {
-    addLog('🌐 打开外部浏览器...', 'info');
+  const handleGoToCourse = (course: Course) => {
+    setSelectedCourse(course);
+    setViewMode('course-detail');
+  };
+
+  const handleBackToCourses = () => {
+    setSelectedCourse(null);
+    setViewMode('courses-list');
+  };
+
+  const handleCheckIn = async (type: 'location' | 'qr') => {
+    setIsChecking(true);
+    await new Promise(resolve => setTimeout(resolve, 1500));
     
-    const externalUrl = currentUrl;
-    const opened = window.open(externalUrl, '_blank', 'noopener,noreferrer');
+    const newRecord: CheckInRecord = {
+      id: Date.now().toString(),
+      courseName: selectedCourse!.name,
+      method: type,
+      location: type === 'location' ? '学校教学楼' : undefined,
+      time: new Date().toLocaleString('zh-CN'),
+      status: 'success'
+    };
     
-    if (opened) {
-      addLog('✅ 外部浏览器已打开', 'success');
-    } else {
-      addLog('❌ 浏览器打开被阻止，请允许弹窗', 'error');
-      alert('⚠️ 浏览器打开被阻止\n\n请允许弹出窗口，或手动复制链接到浏览器访问。');
-    }
+    setCheckInRecords(prev => [newRecord, ...prev]);
+    setIsChecking(false);
+    alert(`✅ ${selectedCourse?.name} ${type === 'location' ? '位置' : '扫码'}签到成功！`);
   };
 
-  const forceRedirectToMobile = () => {
-    addLog('⚡ 强制跳转到学习通主页...', 'warning');
-    navigateToUrl('https://mobilelearn.chaoxing.com/');
-    
-    setTimeout(() => {
-      setLoginStatus('success');
-    }, 1000);
-  };
-
-  const tryDirectAccess = () => {
-    addLog('📱 尝试直接访问...', 'info');
-    navigateToUrl('https://passport2.chaoxing.com/login?refer=http://mobilelearn.chaoxing.com/wap/');
-  };
-
-  const toggleProxy = () => {
-    setUseProxy(prev => !prev);
-    addLog(`🔧 ${!useProxy ? '启用' : '禁用'}代理模式`, 'info');
-  };
-
-  const clearLogs = () => {
-    setLogs([]);
-    addLog('🗑️ 日志已清空', 'info');
-  };
-
-  const renderIframeMode = () => (
+  // 渲染登录页（webview）
+  const renderLoginWebview = () => (
     <div className="flex-1 flex flex-col bg-gray-100">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <button onClick={onClose} className="flex items-center gap-2 text-white">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <h2 className="font-semibold text-white">学习通</h2>
+          <button onClick={() => setShowHelp(!showHelp)} className="text-white">
+            <HelpCircle className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+      
+      {showHelp && (
+        <div className="bg-blue-50 border-b border-blue-200 p-4">
+          <h3 className="font-semibold text-blue-800 mb-2 flex items-center gap-2">
+            <HelpCircle className="w-4 h-4" />
+            使用说明
+          </h3>
+          <ul className="text-sm text-blue-700 space-y-1">
+            <li>1. 在下方iframe中登录学习通账号</li>
+            <li>2. 如iframe无法登录，请点击右上角"外部浏览器"按钮</li>
+            <li>3. 登录成功后点击右下角"已登录，进入课程"</li>
+            <li>4. 即可使用课程签到等功能</li>
+          </ul>
+        </div>
+      )}
+      
       <div className="bg-white border-b p-3">
         <div className="flex items-center gap-2">
           <input
             type="text"
             value={currentUrl}
             onChange={(e) => setCurrentUrl(e.target.value)}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
             placeholder="输入网址..."
           />
           <button
-            onClick={() => navigateToUrl(currentUrl)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-          >
-            跳转
-          </button>
-          <button
             onClick={refreshIframe}
-            className="p-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-            title="刷新"
+            className="p-2 bg-blue-500 text-white rounded-lg"
+            title="刷新页面"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+          <button
+            onClick={() => window.open(currentUrl, '_blank')}
+            className="p-2 bg-green-500 text-white rounded-lg"
+            title="外部浏览器打开"
+          >
+            <Chrome className="w-4 h-4" />
+          </button>
         </div>
-        
         <div className="flex items-center gap-2 mt-2">
           <button
             onClick={() => navigateToUrl('https://passport2.chaoxing.com/login?refer=http://mobilelearn.chaoxing.com/')}
-            className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs hover:bg-blue-200"
+            className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs"
           >
             登录页
           </button>
           <button
-            onClick={forceRedirectToMobile}
-            className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs hover:bg-green-200 flex items-center gap-1"
-          >
-            <Zap className="w-3 h-3" />
-            强制跳转
-          </button>
-          <button
             onClick={() => navigateToUrl('https://mobilelearn.chaoxing.com/')}
-            className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs hover:bg-purple-200"
+            className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs"
           >
-            学习通主页
-          </button>
-          <button
-            onClick={openInExternalBrowser}
-            className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs hover:bg-orange-200 flex items-center gap-1 ml-auto"
-          >
-            <ExternalLink className="w-3 h-3" />
-            外部浏览器
+            主页
           </button>
         </div>
       </div>
@@ -195,233 +214,324 @@ const XuexitongWebview: React.FC<XuexitongWebviewProps> = ({ onClose }) => {
           ref={iframeRef}
           src={currentUrl}
           className="w-full h-full border-0"
-          sandbox={iframeSandbox}
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation allow-top-navigation-by-user-activation allow-modals allow-downloads allow-pointer-lock allow-orientation-lock allow-presentation"
           referrerPolicy="no-referrer"
+          allow="geolocation; microphone; camera; autoplay; fullscreen"
         />
         
-        {loginStatus === 'idle' && (
-          <div className="absolute top-4 left-4 right-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Monitor className="w-4 h-4 text-blue-600" />
-              <span className="text-sm text-blue-800">请在下方完成登录</span>
-            </div>
-            <button
-              onClick={forceRedirectToMobile}
-              className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
-            >
-              登录后跳转
-            </button>
-          </div>
-        )}
-        
-        {loginStatus === 'success' && (
-          <div className="absolute top-4 left-4 right-4 bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-            <Check className="w-4 h-4 text-green-600" />
-            <span className="text-sm text-green-800">✅ 已成功登录学习通！</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderBrowserMode = () => (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-gradient-to-br from-blue-50 to-purple-50">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
-        <Globe className="w-20 h-20 mx-auto text-blue-600 mb-6" />
-        <h2 className="text-2xl font-bold text-gray-800 mb-4">使用外部浏览器</h2>
-        <p className="text-gray-600 mb-6">
-          内嵌模式存在跨域限制，建议使用外部浏览器获得最佳体验。
-        </p>
-        
-        <div className="space-y-4">
+        {/* 登录成功检测按钮 */}
+        <div className="absolute bottom-6 left-6 right-6 flex gap-3">
           <button
-            onClick={openInExternalBrowser}
-            className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold hover:opacity-90 flex items-center justify-center gap-2"
+            onClick={() => window.open(currentUrl, '_blank')}
+            className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-3 rounded-full shadow-lg flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
           >
             <ExternalLink className="w-5 h-5" />
-            在浏览器中打开学习通
+            <span className="font-semibold">外部浏览器登录</span>
           </button>
-          
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-left">
-            <h4 className="font-semibold text-yellow-800 flex items-center gap-2 mb-2">
-              <AlertTriangle className="w-4 h-4" />
-              为什么需要外部浏览器？
-            </h4>
-            <ul className="text-sm text-yellow-700 space-y-1">
-              <li>• 跨域安全策略会阻止Session同步</li>
-              <li>• Cookie和LocalStorage无法正确传递</li>
-              <li>• 部分JavaScript功能受限</li>
-              <li>• 学习通的登录流程依赖完整浏览器环境</li>
-            </ul>
-          </div>
-          
           <button
-            onClick={() => setViewMode('iframe')}
-            className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200"
+            onClick={handleLoginComplete}
+            className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-4 py-3 rounded-full shadow-lg flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
           >
-            返回内嵌模式尝试
+            <Check className="w-5 h-5" />
+            <span className="font-semibold">已登录，进入课程</span>
           </button>
         </div>
       </div>
     </div>
   );
 
-  const renderDebugMode = () => (
-    <div className="flex-1 flex flex-col bg-gray-900">
-      <div className="bg-gray-800 border-b border-gray-700 p-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Monitor className="w-4 h-4 text-green-400" />
-          <span className="text-sm font-medium text-white">调试控制台</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={clearLogs}
-            className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
-          >
-            清空
+  // 渲染课程列表
+  const renderCoursesList = () => (
+    <div className="flex-1 flex flex-col bg-gray-50">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <button onClick={onClose} className="flex items-center gap-2 text-white">
+            <ArrowLeft className="w-5 h-5" />
           </button>
-        </div>
-      </div>
-      
-      <div className="flex-1 overflow-auto p-4 font-mono text-xs">
-        {logs.map((log, i) => (
-          <div key={i} className="text-green-400 mb-1 leading-relaxed">
-            {log}
-          </div>
-        ))}
-        {logs.length === 0 && (
-          <div className="text-gray-500 text-center py-8">
-            暂无日志记录
-          </div>
-        )}
-      </div>
-      
-      <div className="bg-gray-800 border-t border-gray-700 p-4">
-        <h4 className="text-white text-sm font-medium mb-3">URL历史</h4>
-        <div className="space-y-2">
-          {urlHistory.slice(-5).reverse().map((url, i) => (
-            <button
-              key={i}
-              onClick={() => navigateToUrl(url)}
-              className="w-full text-left px-3 py-2 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600 truncate"
-            >
-              {url}
+          <h2 className="font-semibold text-white">学习通</h2>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setViewMode('webview-login')} className="text-white" title="打开网页版">
+              <Globe className="w-5 h-5" />
             </button>
+          </div>
+        </div>
+        <p className="text-blue-100 text-sm mt-1">{user?.userName ? `欢迎, ${user.userName}` : '学习通用户'}</p>
+      </div>
+      
+      {user && (
+        <div className="bg-white border-b p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
+                {user.userName?.charAt(0) || '用'}
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800">{user.userName}</p>
+                <p className="text-gray-500 text-xs">已登录</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowCheckInHistory(true)}
+                className="px-3 py-1 bg-green-50 text-green-600 rounded-lg text-sm flex items-center gap-1"
+              >
+                <History className="w-4 h-4" />
+                签到历史
+              </button>
+              <button
+                onClick={() => {
+                  logout();
+                  setViewMode('webview-login');
+                }}
+                className="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-sm flex items-center gap-1"
+              >
+                <LogOut className="w-4 h-4" />
+                退出
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <div className="flex-1 overflow-auto p-4">
+        <div className="grid grid-cols-1 gap-4">
+          {courses.map(course => (
+            <div
+              key={course.id}
+              className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+            >
+              <div className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="font-bold text-gray-800 text-lg">{course.name}</h3>
+                    <p className="text-gray-500 text-sm">
+                      <Users className="w-4 h-4 inline mr-1" />
+                      {course.teacher} · {course.className}
+                    </p>
+                    <p className="text-gray-500 text-sm mt-1">
+                      <Clock className="w-4 h-4 inline mr-1" />
+                      {course.time}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleGoToCourse(course)}
+                    className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <div className="flex gap-2 mt-3">
+                  {course.hasCheckIn && (
+                    <span className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> 可签到
+                    </span>
+                  )}
+                  {course.hasChat && (
+                    <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs flex items-center gap-1">
+                      <MessageSquare className="w-3 h-3" /> 群聊
+                    </span>
+                  )}
+                </div>
+              </div>
+              
+              <button
+                onClick={() => handleGoToCourse(course)}
+                className="w-full bg-gradient-to-r from-blue-50 to-indigo-50 py-3 text-center text-blue-600 font-semibold text-sm hover:from-blue-100 hover:to-indigo-100 transition-colors"
+              >
+                进入课程
+              </button>
+            </div>
           ))}
         </div>
       </div>
+      
+      <div className="bg-white border-t p-4">
+        <button
+          onClick={() => setViewMode('webview-login')}
+          className="w-full py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 flex items-center justify-center gap-2"
+        >
+          <Monitor className="w-5 h-5" />
+          打开学习通网页版
+        </button>
+      </div>
+    </div>
+  );
+  
+  // 渲染签到历史
+  const renderCheckInHistory = () => (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-end justify-center">
+      <div className="bg-white w-full max-w-md rounded-t-2xl max-h-[80vh] flex flex-col">
+        <div className="p-4 border-b flex items-center justify-between">
+          <h3 className="font-semibold text-gray-800 text-lg">签到历史</h3>
+          <button
+            onClick={() => setShowCheckInHistory(false)}
+            className="p-2 hover:bg-gray-100 rounded-full"
+          >
+            <XCircle className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-auto p-4">
+          {checkInRecords.length === 0 ? (
+            <div className="text-center py-12">
+              <History className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500">暂无签到记录</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {checkInRecords.map(record => (
+                <div key={record.id} className="bg-gray-50 rounded-xl p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-semibold text-gray-800">{record.courseName}</p>
+                      <p className="text-gray-500 text-xs">{record.time}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs ${
+                      record.status === 'success' 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      {record.status === 'success' ? '成功' : '失败'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-600 text-sm">
+                    {record.method === 'location' ? (
+                      <MapPin className="w-4 h-4" />
+                    ) : (
+                      <QrCode className="w-4 h-4" />
+                    )}
+                    <span>
+                      {record.method === 'location' ? '位置签到' : '扫码签到'}
+                      {record.location && ` - ${record.location}`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 
-  return (
-    <div className="fixed inset-0 bg-gray-100 z-50 flex flex-col">
-      <div className="bg-white shadow-sm flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-3">
-          <button onClick={onClose} className="flex items-center gap-1 text-gray-600 hover:text-gray-800">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h2 className="font-semibold text-gray-800">学习通</h2>
+  // 渲染课程详情
+  const renderCourseDetail = () => {
+    if (!selectedCourse) return null;
+    
+    return (
+      <div className="flex-1 flex flex-col bg-gray-50">
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <button onClick={handleBackToCourses} className="flex items-center gap-2 text-white">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h2 className="font-semibold text-white">{selectedCourse.name}</h2>
+            <div className="w-10"></div>
+          </div>
         </div>
         
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode('iframe')}
-            className={`p-2 rounded-lg transition-colors ${viewMode === 'iframe' ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`}
-            title="内嵌模式"
-          >
-            <Monitor className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setViewMode('browser')}
-            className={`p-2 rounded-lg transition-colors ${viewMode === 'browser' ? 'bg-green-100 text-green-600' : 'text-gray-500 hover:bg-gray-100'}`}
-            title="外部浏览器"
-          >
-            <Globe className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setShowDebugPanel(!showDebugPanel)}
-            className={`p-2 rounded-lg transition-colors ${showDebugPanel ? 'bg-purple-100 text-purple-600' : 'text-gray-500 hover:bg-gray-100'}`}
-            title="调试"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setShowHelp(!showHelp)}
-            className={`p-2 rounded-lg transition-colors ${showHelp ? 'bg-yellow-100 text-yellow-600' : 'text-gray-500 hover:bg-gray-100'}`}
-            title="帮助"
-          >
-            <HelpCircle className="w-5 h-5" />
-          </button>
+        <div className="bg-white border-b p-4">
+          <h3 className="font-bold text-gray-800">{selectedCourse.name}</h3>
+          <p className="text-gray-500 text-sm mt-1">
+            {selectedCourse.teacher} · {selectedCourse.className} · {selectedCourse.time}
+          </p>
+        </div>
+        
+        <div className="flex-1 overflow-auto p-4">
+          {/* 功能网格 */}
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <button
+              onClick={() => handleCheckIn('location')}
+              disabled={isChecking}
+              className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-all flex flex-col items-center gap-3 disabled:opacity-50"
+            >
+              <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full flex items-center justify-center text-white">
+                <MapPin className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-gray-800">位置签到</p>
+                <p className="text-gray-500 text-xs">虚拟位置签到</p>
+              </div>
+            </button>
+            
+            <button
+              onClick={() => handleCheckIn('qr')}
+              disabled={isChecking}
+              className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-all flex flex-col items-center gap-3 disabled:opacity-50"
+            >
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full flex items-center justify-center text-white">
+                <QrCode className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-gray-800">扫码签到</p>
+                <p className="text-gray-500 text-xs">扫描二维码签到</p>
+              </div>
+            </button>
+            
+            <button
+              className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-all flex flex-col items-center gap-3"
+            >
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center text-white">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-gray-800">课程群聊</p>
+                <p className="text-gray-500 text-xs">查看群聊消息</p>
+              </div>
+            </button>
+            
+            <button
+              className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-all flex flex-col items-center gap-3"
+            >
+              <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-red-500 rounded-full flex items-center justify-center text-white">
+                <Calendar className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-gray-800">课程安排</p>
+                <p className="text-gray-500 text-xs">查看课程进度</p>
+              </div>
+            </button>
+          </div>
+          
+          {/* 课程信息 */}
+          <div className="bg-white rounded-xl p-4 shadow-sm mb-4">
+            <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-blue-500" />
+              课程操作
+            </h3>
+            <div className="space-y-2">
+              <button
+                onClick={() => setViewMode('webview-login')}
+                className="w-full py-3 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 flex items-center justify-center gap-2"
+              >
+                <Globe className="w-4 h-4" />
+                在学习通网页版打开课程
+              </button>
+            </div>
+          </div>
+          
+          {/* 签到历史 */}
+          <div className="bg-white rounded-xl p-4 shadow-sm">
+            <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-green-500" />
+              最近签到
+            </h3>
+            <div className="text-center py-4 text-gray-400">
+              <p>暂无签到记录</p>
+            </div>
+          </div>
         </div>
       </div>
-      
-      {showDebugPanel && (
-        <div className="bg-gray-50 border-b p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-gray-700">调试选项</h3>
-            <button
-              onClick={() => setShowDebugPanel(false)}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <XCircle className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={tryDirectAccess}
-              className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm"
-            >
-              尝试直接访问
-            </button>
-            <button
-              onClick={toggleProxy}
-              className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm"
-            >
-              {useProxy ? '禁用' : '启用'}代理
-            </button>
-            <button
-              onClick={() => setViewMode('debug')}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm"
-            >
-              查看日志
-            </button>
-            <button
-              onClick={refreshIframe}
-              className="px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm"
-            >
-              重置iframe
-            </button>
-          </div>
-        </div>
-      )}
-      
-      {showHelp && (
-        <div className="bg-yellow-50 border-b p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-yellow-800">使用帮助</h3>
-            <button
-              onClick={() => setShowHelp(false)}
-              className="text-yellow-600 hover:text-yellow-800"
-            >
-              <XCircle className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="text-sm text-yellow-800 space-y-2">
-            <p><strong>问题：</strong>登录后无法跳转到学习通主页</p>
-            <p><strong>原因：</strong>浏览器的跨域安全策略限制了iframe内的Session和Cookie同步</p>
-            <p><strong>解决方案：</strong></p>
-            <ol className="list-decimal list-inside space-y-1 ml-2">
-              <li>点击"外部浏览器"按钮（最推荐）</li>
-              <li>或在登录后点击"强制跳转"</li>
-              <li>或尝试"调试"模式查看详细日志</li>
-            </ol>
-          </div>
-        </div>
-      )}
-      
-      {viewMode === 'iframe' && renderIframeMode()}
-      {viewMode === 'browser' && renderBrowserMode()}
-      {viewMode === 'debug' && renderDebugMode()}
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col">
+      {viewMode === 'webview-login' && renderLoginWebview()}
+      {viewMode === 'courses-list' && renderCoursesList()}
+      {viewMode === 'course-detail' && renderCourseDetail()}
+      {showCheckInHistory && renderCheckInHistory()}
     </div>
   );
 };
